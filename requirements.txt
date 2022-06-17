@@ -1,2 +1,4 @@
-matplotlib
-requests
+imageio==2.19.3
+jsonpickle==2.2.0
+matplotlib==3.5.2
+requests==2.28.0
