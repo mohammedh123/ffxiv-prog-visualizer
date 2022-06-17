@@ -1,0 +1,10 @@
+version: "3.9"
+   
+services:
+  prog:
+    build: .
+    command: python main.py
+    volumes:
+      - ./config.ini:/config.ini
+      - ./output:/output
+      - ./cache.json:/cache.json
