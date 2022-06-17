@@ -87,13 +87,13 @@ class Pull:
     duration_in_seconds: int
 
 
-def get_new_token():
+def get_new_token(client_id, client_secret):
     token_response = requests.post(
         constants.TOKEN_URL,
         data=constants.TOKEN_REQUEST_PAYLOAD,
         verify=False,
         allow_redirects=False,
-        auth=(config.get('CLIENT_ID'), config.get('CLIENT_SECRET')),
+        auth=(client_id, client_secret),
     )
     token_response_text = json.loads(token_response.text)
     return token_response_text['access_token']
@@ -127,11 +127,15 @@ def get_abilities(token):
                     }}
                 }}
             }}"""
-            r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
-            response_json = json.loads(r.text)
+            try:
+                r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
+                response_json = json.loads(r.text)
 
-            has_more_pages = response_json['data']['gameData']['abilities']['has_more_pages']
-            abilities.extend(response_json['data']['gameData']['abilities']['data'])
+                has_more_pages = response_json['data']['gameData']['abilities']['has_more_pages']
+                abilities.extend(response_json['data']['gameData']['abilities']['data'])
+            except Exception:
+                logger.exception(f'Failed to get ability data. Response: {r.text}.')
+                raise
 
             current_page += 1
 
@@ -171,12 +175,15 @@ def get_reports(token, user_id, zone_id):
                 }}
             }}
         }}"""
-        r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
-        response_json = json.loads(r.text)
+        try:
+            r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
+            response_json = json.loads(r.text)
 
-        has_more_pages = response_json['data']['reportData']['reports']['has_more_pages']
-        reports.extend(response_json['data']['reportData']['reports']['data'])
-        
+            has_more_pages = response_json['data']['reportData']['reports']['has_more_pages']
+            reports.extend(response_json['data']['reportData']['reports']['data'])
+        except Exception:
+            logger.exception(f'Failed to get reports data. Response: {r.text}.')
+            raise
     # Before moving on, sort the reports by start date
     reports.sort(key=itemgetter('startTime'))
     logger.info(f'{len(reports)} reports found.')
@@ -205,11 +212,15 @@ def get_abilities_cast_by_enemies_by_report_and_fight(token, report_id, fight_id
                 }}
             }}
         }}"""
-        r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
-        response_json = json.loads(r.text)
+        try:
+            r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
+            response_json = json.loads(r.text)
 
-        start_time = response_json['data']['reportData']['report']['events']['nextPageTimestamp']
-        results.extend(d for d in response_json['data']['reportData']['report']['events']['data'] if d['type'] == 'cast')
+            start_time = response_json['data']['reportData']['report']['events']['nextPageTimestamp']
+            results.extend(d for d in response_json['data']['reportData']['report']['events']['data'] if d['type'] == 'cast')
+        except Exception:
+            logger.exception(f'Failed to get ability cast data. Response: {r.text}.')
+            raise
     return results
     
 
@@ -420,10 +431,10 @@ def main():
         VictoryIndicator(index=8, label='Prey Slaughtered', style={'color': 'gold', 'mec': 'black', 'marker': '*', 'markersize': 12})
     ]
 
-    if not (token := config.get('main', 'TOKEN')):
-        token = get_new_token()
+    if not (token := config.get('main', 'TOKEN', fallback=None)):
+        token = get_new_token(config.get('main', 'CLIENT_ID'), config.get('main', 'CLIENT_SECRET'))
         config['main']['TOKEN'] = token
-        with open(config_filename) as f:
+        with open(config_filename, 'w') as f:
             config.write(f)
 
         logger.info('New token generated and config file updated.')
