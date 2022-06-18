@@ -57,7 +57,7 @@ class VictoryIndicator(ProgressIndicator):
 
 @dataclass
 class AbilityProgressIndicator(ProgressIndicator):
-    """Uses ability ids to indicate progress for a pull."""    
+    """Uses ability ids to indicate progress for a pull."""
     ability_ids: frozenset[int]
 
     def matches(self, token, cache, report, fight):
@@ -74,7 +74,7 @@ class AbilityProgressIndicator(ProgressIndicator):
         for ability_json in reversed(abilities_cast_by_enemies):
             if ability_json['abilityGameID'] in self.ability_ids:
                 return True
-        
+
         return False
 
 
@@ -98,7 +98,7 @@ def get_new_token(client_id, client_secret):
     token_response_text = json.loads(token_response.text)
     return token_response_text['access_token']
 
-    
+
 def get_abilities(token):
     """
     Gets all the game ability ids and names.
@@ -187,7 +187,7 @@ def get_reports(token, user_id, zone_id):
     # Before moving on, sort the reports by start date
     reports.sort(key=itemgetter('startTime'))
     logger.info(f'{len(reports)} reports found.')
-    
+
     return reports
 
 
@@ -222,10 +222,33 @@ def get_abilities_cast_by_enemies_by_report_and_fight(token, report_id, fight_id
             logger.exception(f'Failed to get ability cast data. Response: {r.text}.')
             raise
     return results
-    
+
+
+def get_zone_name(token, zone_id):
+    query_headers = {'Authorization': f'Bearer {token}'}
+    logger.info(f'Querying FFLogs for zone name.')
+
+    q = f"""query {{
+        worldData {{
+            zone(id: {zone_id}) {{
+                    name
+            }}
+        }}
+    }}"""
+    try:
+        r = requests.get(constants.API_URL, headers=query_headers, json={'query': q})
+        response_json = json.loads(r.text)
+
+        return response_json['data']['worldData']['zone']['name']
+    except Exception:
+        logger.exception(f'Failed to get zone name. Response: {r.text}.')
+        raise
+
 
 def parse_pulls_from_reports(token, cache, reports, progress_indicators):
     logger.info('Parsing pulls from report data.')
+
+    progress_indicators_by_index = {pi.index:pi for pi in progress_indicators}
 
     all_pulls = []
     for report in reports:
@@ -234,11 +257,15 @@ def parse_pulls_from_reports(token, cache, reports, progress_indicators):
         # If the report data is cached, just use that data and move onto the next.
         cache_key = f'report_data/{report_id}'
         cached_report_data = cache.get(cache_key)
-        if cached_report_data:        
+        if cached_report_data:
             logger.info(f'Using cached data of {len(cached_report_data)} pulls for report {report_id}.')
+
+            # Rehydrate progress indicator cache incase of styling changes
+            for fight in cached_report_data:
+                fight.progress = progress_indicators_by_index[fight.progress.index]
             all_pulls.extend(cached_report_data)
             continue
-            
+
         # Otherwise, load up data (and then cache it).
         pulls = []
         for fight in report['fights']:
@@ -296,7 +323,7 @@ def setup_plot():
 
     axes.yaxis.set_major_formatter(FuncFormatter(time_formatter))
     axes.yaxis.set_major_locator(MultipleLocator(base=60))
-    
+
     text_axes.axis('off')
     text_axes.set_xticklabels([])
     text_axes.set_yticklabels([])
@@ -304,10 +331,10 @@ def setup_plot():
     return figure, axes, text_axes
 
 
-def plot_pull_data(pulls, progress_indicators, generate_gif=False):
+def plot_pull_data(title, pulls, progress_indicators, generate_gif=False):
     logger.info(f'Plotting data of {len(pulls)} pulls.')
     figure, axes, text_axes = setup_plot()
-    
+
     # Create a text object that we'll keep updated throughout the plotting.
     text = text_axes.text(
         0,
@@ -338,8 +365,8 @@ def plot_pull_data(pulls, progress_indicators, generate_gif=False):
     current_report_id = None
     current_shade_color = next(shading_colors)
     total_time = 0
-    unique_reports = set()    
-    
+    unique_reports = set()
+
     for pull_count, pull in enumerate(pulls, start=1):
         # Minor housekeeping to maintain "current report" shading and longest pull time
         if not current_report_id:
@@ -358,7 +385,7 @@ def plot_pull_data(pulls, progress_indicators, generate_gif=False):
         total_time += pull.duration_in_seconds
         unique_reports.add(pull.report_id)
 
-        axes.set_title(f'The Epic of Alexander Prog: Pull #{pull_count}')
+        axes.set_title(f'{title}: Pull #{pull_count}')
         default_style = {'marker': 'D', 'markersize': 4, 'alpha': 0.8}
         axes_style = default_style | pull.progress.style
         axes.plot(pull_count, pull.duration_in_seconds, **axes_style)
@@ -413,7 +440,7 @@ def main():
         default=config.getboolean('main', 'GENERATE_GIF'),
     )
     args = parser.parse_args()
-        
+
     cache = JsonFileCache('cache.json')
 
     # A list of progress indicating abilities.
@@ -442,9 +469,10 @@ def main():
     logger.info('Token found.')
 
     user_id = config.getint('main', 'FFLOGS_USER_ID')
-    reports = get_reports(token, user_id, constants.TEA_ZONE_ID)
+    zone_name = get_zone_name(token, constants.ZONE_ID)
+    reports = get_reports(token, user_id, constants.ZONE_ID)
     all_pulls = parse_pulls_from_reports(token, cache, reports, progress_indicators)
-    plot_pull_data(all_pulls, progress_indicators, args.generate_gif)
+    plot_pull_data(zone_name, all_pulls, progress_indicators, args.generate_gif)
 
 
 if __name__ == '__main__':
